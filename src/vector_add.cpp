@@ -70,89 +70,157 @@
 //     return 0;
 // }
 
-// Vector add on cache-sized arrays: repeat the same c = a + b many times so the
-// data stays in each core's private L1/L2 cache instead of going to main memory.
+// // Vector add on cache-sized arrays: repeat the same c = a + b many times so the
+// // data stays in each core's private L1/L2 cache instead of going to main memory.
+// #include <omp.h>
+
+// #include <cstdio>
+// #include <vector>
+
+// // Stops the compiler from noticing that repeating the same loop is pointless
+// // and deleting the repetitions.
+// static inline void clobber_memory() { asm volatile("" ::: "memory"); }
+
+// static double run_serial(const double* a, const double* b, double* c, long n, long reps) {
+//     double t0 = omp_get_wtime();
+//     for (long r = 0; r < reps; ++r) {
+//         for (long i = 0; i < n; ++i) c[i] = a[i] + b[i];
+//         clobber_memory();
+//     }
+//     return omp_get_wtime() - t0;
+// }
+
+// static double run_parallel(const double* a, const double* b, double* c, long n, long reps,
+//                            int threads) {
+//     double t0 = omp_get_wtime();
+//     // ONE parallel region around all repetitions: threads are created once,
+//     // not once per repetition (that overhead would dominate for small n).
+//     #pragma omp parallel num_threads(threads) 
+//     {
+//         for (long r = 0; r < reps; ++r) {
+//             // schedule(static) gives each thread the SAME index range every
+//             // repetition, so its slice of a, b, c stays warm in its own cache.
+//             #pragma omp for schedule(static) nowait
+//             for (long i = 0; i < n; ++i) c[i] = a[i] + b[i];
+//             // implicit barrier at the end of "omp for" keeps repetitions in step
+//         }
+//     }
+//     return omp_get_wtime() - t0;
+// }
+
+// template <typename F>
+// static double best_of(F f, int tries = 3) {
+//     double best = 1e30;
+//     for (int k = 0; k < tries; ++k) {
+//         double t = f();
+//         if (t < best) best = t;
+//     }
+//     return best;
+// }
+
+// int main() {
+//     const int max_t = omp_get_max_threads();
+//     // Total elements processed per measurement, kept equal for every N so the
+//     // runs take similar time. 800M element-adds ~ a few hundred ms.
+//     const long total_work = 800'000'000L;
+
+//     std::printf("threads available: %d\n\n", max_t);
+//     std::printf("%10s %10s %8s %10s %10s %9s\n", "N", "arrays", "threads", "time(ms)",
+//                 "GB/s", "speedup");
+
+//     for (long n : {4'000L, 16'000L, 64'000L, 256'000L, 1'000'000L, 20'000'000L}) {
+//         std::vector<double> a(n), b(n), c(n);
+//         for (long i = 0; i < n; ++i) {
+//             a[i] = 0.5 * static_cast<double>(i);
+//             b[i] = 1.0;
+//         }
+//         const long reps = total_work / n;
+//         const double bytes = 24.0 * static_cast<double>(n) * static_cast<double>(reps);
+//         const double kb = 24.0 * static_cast<double>(n) / 1024.0;
+
+//         const double t_serial = best_of([&] { return run_serial(a.data(), b.data(), c.data(), n, reps); });
+//         std::printf("%10ld %8.0fKB %8s %10.1f %10.1f %9.2f\n", n, kb, "serial",
+//                     t_serial * 1e3, bytes / t_serial / 1e9, 1.0);
+
+//         for (int t = 1; t <= max_t; t *= 2) {
+//             const double tp = best_of([&] { return run_parallel(a.data(), b.data(), c.data(), n, reps, t); });
+//             std::printf("%10s %10s %8d %10.1f %10.1f %9.2f\n", "", "", t, tp * 1e3,
+//                         bytes / tp / 1e9, t_serial / tp);
+//             if (t * 2 > max_t && t != max_t) t = max_t / 2;  // make sure max_t is tested
+//         }
+
+//         // sanity check
+//         for (long i = 0; i < n; ++i)
+//             if (c[i] != a[i] + b[i]) { std::printf("WRONG at %ld\n", i); return 1; }
+//         std::printf("\n");
+//     }
+//     return 0;
+// }
+
+// Is a large vector add limited by waiting (latency) or by the memory pipe (bandwidth)?
+// Compares: plain add, add with manual software prefetch, and in-place add.
 #include <omp.h>
 
 #include <cstdio>
 #include <vector>
 
-// Stops the compiler from noticing that repeating the same loop is pointless
-// and deleting the repetitions.
 static inline void clobber_memory() { asm volatile("" ::: "memory"); }
 
-static double run_serial(const double* a, const double* b, double* c, long n, long reps) {
-    double t0 = omp_get_wtime();
-    for (long r = 0; r < reps; ++r) {
-        for (long i = 0; i < n; ++i) c[i] = a[i] + b[i];
-        clobber_memory();
-    }
-    return omp_get_wtime() - t0;
-}
-
-static double run_parallel(const double* a, const double* b, double* c, long n, long reps,
-                           int threads) {
-    double t0 = omp_get_wtime();
-    // ONE parallel region around all repetitions: threads are created once,
-    // not once per repetition (that overhead would dominate for small n).
-    #pragma omp parallel num_threads(threads)
-    {
-        for (long r = 0; r < reps; ++r) {
-            // schedule(static) gives each thread the SAME index range every
-            // repetition, so its slice of a, b, c stays warm in its own cache.
-            #pragma omp for schedule(static)
-            for (long i = 0; i < n; ++i) c[i] = a[i] + b[i];
-            // implicit barrier at the end of "omp for" keeps repetitions in step
-        }
-    }
-    return omp_get_wtime() - t0;
-}
-
 template <typename F>
-static double best_of(F f, int tries = 3) {
+static double best_ms(F f, int tries = 5) {
     double best = 1e30;
     for (int k = 0; k < tries; ++k) {
-        double t = f();
+        double t0 = omp_get_wtime();
+        f();
+        clobber_memory();
+        double t = (omp_get_wtime() - t0) * 1e3;
         if (t < best) best = t;
     }
     return best;
 }
 
 int main() {
-    const int max_t = omp_get_max_threads();
-    // Total elements processed per measurement, kept equal for every N so the
-    // runs take similar time. 800M element-adds ~ a few hundred ms.
-    const long total_work = 800'000'000L;
+    const long N = 20'000'000;  // 160 MB per array, far bigger than any cache
+    std::vector<double> a(N), b(N), c(N);
+    #pragma omp parallel for schedule(static)
+    for (long i = 0; i < N; ++i) { a[i] = 1.0; b[i] = 2.0; c[i] = 0.0; }
 
-    std::printf("threads available: %d\n\n", max_t);
-    std::printf("%10s %10s %8s %10s %10s %9s\n", "N", "arrays", "threads", "time(ms)",
-                "GB/s", "speedup");
+    // Prefetch this many elements ahead (512 doubles = 4 KB = 64 cache lines)
+    const long DIST = 512;
 
-    for (long n : {4'000L, 16'000L, 64'000L, 256'000L, 1'000'000L, 20'000'000L}) {
-        std::vector<double> a(n), b(n), c(n);
-        for (long i = 0; i < n; ++i) {
-            a[i] = 0.5 * static_cast<double>(i);
-            b[i] = 1.0;
+    std::printf("threads = %d, N = %ld (%.0f MB per array)\n\n", omp_get_max_threads(), N,
+                N * 8.0 / 1e6);
+    std::printf("%-34s %9s %13s %9s\n", "kernel", "time(ms)", "bytes moved", "GB/s");
+
+    auto report = [](const char* name, double ms, double bytes) {
+        std::printf("%-34s %9.1f %10.0f MB %9.1f\n", name, ms, bytes / 1e6, bytes / (ms * 1e-3) / 1e9);
+    };
+
+    // 1) plain add: reads a, b; writes c (+ hidden read of c for write-allocate)
+    double ms = best_ms([&] {
+        #pragma omp parallel for schedule(static)
+        for (long i = 0; i < N; ++i) c[i] = a[i] + b[i];
+    });
+    report("c = a + b", ms, 24.0 * N);
+
+    // 2) same add, but we explicitly ask the CPU to start loading DIST ahead
+    ms = best_ms([&] {
+        #pragma omp parallel for schedule(static)
+        for (long i = 0; i < N; ++i) {
+            __builtin_prefetch(&a[i + DIST], 0);  // 0 = will read
+            __builtin_prefetch(&b[i + DIST], 0);
+            __builtin_prefetch(&c[i + DIST], 1);  // 1 = will write
+            c[i] = a[i] + b[i];
         }
-        const long reps = total_work / n;
-        const double bytes = 24.0 * static_cast<double>(n) * static_cast<double>(reps);
-        const double kb = 24.0 * static_cast<double>(n) / 1024.0;
+    });
+    report("c = a + b  (manual prefetch)", ms, 24.0 * N);
 
-        const double t_serial = best_of([&] { return run_serial(a.data(), b.data(), c.data(), n, reps); });
-        std::printf("%10ld %8.0fKB %8s %10.1f %10.1f %9.2f\n", n, kb, "serial",
-                    t_serial * 1e3, bytes / t_serial / 1e9, 1.0);
+    // 3) in-place add: no third array
+    ms = best_ms([&] {
+        #pragma omp parallel for schedule(static)
+        for (long i = 0; i < N; ++i) a[i] += b[i];
+    });
+    report("a += b  (in place)", ms, 24.0 * N);
 
-        for (int t = 1; t <= max_t; t *= 2) {
-            const double tp = best_of([&] { return run_parallel(a.data(), b.data(), c.data(), n, reps, t); });
-            std::printf("%10s %10s %8d %10.1f %10.1f %9.2f\n", "", "", t, tp * 1e3,
-                        bytes / tp / 1e9, t_serial / tp);
-            if (t * 2 > max_t && t != max_t) t = max_t / 2;  // make sure max_t is tested
-        }
-
-        // sanity check
-        for (long i = 0; i < n; ++i)
-            if (c[i] != a[i] + b[i]) { std::printf("WRONG at %ld\n", i); return 1; }
-        std::printf("\n");
-    }
     return 0;
 }
