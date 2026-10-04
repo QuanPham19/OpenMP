@@ -64,7 +64,7 @@ int main() {
         vector<double> b(size, 2.0);
         vector<double> c(size, 0.0);
 
-        for (auto i=0; i<3; i++) {
+        for (auto i=0; i<2; i++) {
             cout << "round: " << i << endl;
             {
                 ScopedTimer t{"serial_copy"};

@@ -16,6 +16,8 @@ find_package(OpenMP REQUIRED)
 # target_link_libraries(test PRIVATE OpenMP::OpenMP_CXX)
 # target_compile_options(test PRIVATE -O3)
 
-add_executable(vector_add src/vector_add.cpp)
+add_executable(vector_add 
+  # src/vector_add.cpp
+  src/matrix_multiply.cpp)
 target_link_libraries(vector_add PRIVATE OpenMP::OpenMP_CXX)
 target_compile_options(vector_add PRIVATE -O3 -march=native -fopenmp)
