@@ -1,7 +1,7 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
-# 27 Sep 2026 (Matrix Multiplication)
+# 04 Oct 2026 (Matrix Multiplication)
 
 **FLOP**
 - Floating point operation: one add/multiply on a double
