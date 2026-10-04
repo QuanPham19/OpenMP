@@ -48,7 +48,7 @@ C row 0 = 1 × row0
         + 3 × row2
 ```
 
-**Version 1: matrix_multiply_ultimate**
+**Version 2: matrix_multiply_ultimate**
 - Effect: 0.5ms on parallel (1.2-1.4x faster than previous)
 - Previous version: 
     - Update 1 row of C at a time 
@@ -61,8 +61,6 @@ C row 0 = 1 × row0
     - In hot loops, make data load as convenient (contiguous, predictable) as possible
     - Re-use data that is still fresh on cache
     - Design the loop to fit into L1/L2 cache where it is super fast
-
-
 
 # 27 Sep 2026 (Vector Addition)
 
