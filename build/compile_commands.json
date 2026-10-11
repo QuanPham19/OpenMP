@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/workspaces/OpenMP/build",
+  "command": "/usr/bin/g++   -g -std=c++17 -O3 -march=native -fopenmp -fopenmp -o CMakeFiles/vector_add.dir/src/histogram_build.cpp.o -c /workspaces/OpenMP/src/histogram_build.cpp",
+  "file": "/workspaces/OpenMP/src/histogram_build.cpp",
+  "output": "CMakeFiles/vector_add.dir/src/histogram_build.cpp.o"
+}
+]

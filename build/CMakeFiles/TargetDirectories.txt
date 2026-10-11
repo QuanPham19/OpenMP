@@ -1,0 +1,3 @@
+/workspaces/OpenMP/build/CMakeFiles/vector_add.dir
+/workspaces/OpenMP/build/CMakeFiles/edit_cache.dir
+/workspaces/OpenMP/build/CMakeFiles/rebuild_cache.dir
