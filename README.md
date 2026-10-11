@@ -1,6 +1,105 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 11 Oct 2026 (Histogram Building)
+
+**Problem statement**
+- Flat array `data` of N integers, each value in [0, B)
+- Output array `hist` of size B, where hist[b] = number of elements equal to b
+- Standard settings: N = 1e8, B = 256, uniform random data (`mt19937`, seed 42)
+- Work per element is tiny (one increment), so the cost is all in how threads update the shared `hist`
+
+**Version 0: histogram_naive**
+- Serial loop: `hist[data[i]] += 1`
+- Speed: ~47ms (one core owns `hist` the whole time, every increment is an L1 hit)
+
+**Version 1: histogram_race**
+- Add `#pragma omp parallel for` on top of the naive loop
+- Result: wrong AND slower
+    - Wrong: loses ~1.3-1.9M of 100M increments, different every run
+    - Slow: ~450-570ms (~10x slower than serial)
+- Why wrong: `hist[b] += 1` is load, add, store. Two threads load 42, both store 43, one increment lost
+- Why slow: cache line ping-pong
+    - 256 ints x 4 bytes = 1 KB = 16 cache lines (64 bytes = 16 ints per line)
+    - Memory is cut into fixed 64-byte aligned blocks; touching hist[7] loads the whole block hist[0..15]
+    - Only one core can hold a line in writable state (MESI). A write by core 0 invalidates core 1's copy of the whole line
+    - With threads interleaving, the line moves between cores on nearly every increment (~40ns vs ~1ns L1 hit)
+- Moral: threads writing to the same small shared array is slow even without locks, the hardware serializes it through cache coherence
+
+**Version 2: histogram_local**
+- Each thread builds its own private `local` histogram, then merges into `hist` once
+```cpp
+#pragma omp parallel
+{
+    vector<int> local(B, 0);                  // private per thread
+
+    #pragma omp for schedule(static)
+    for (size_t i = 0; i < N; i++)
+        local[data[i]] += 1;                  // no sharing in hot loop
+
+    #pragma omp critical
+    for (int b = 0; b < B; b++)
+        hist[b] += local[b];                  // only B adds per thread
+}
+```
+- Speed: ~23ms best (~2.1x faster than serial), correct every run
+- Why ~2x not 4x: only 2 physical cores (threads 3-4 are hyperthreads)
+- Not memory-bound: 400 MB read in 23ms = ~17.5 GB/s, below the ~48 GB/s DRAM ceiling
+
+**Version 3: histogram_reduction**
+- Same idea in one line, OpenMP generates the private copies and the merge
+```cpp
+int* h = hist.data();
+#pragma omp parallel for schedule(static) reduction(+ : h[:B])
+for (size_t i = 0; i < N; i++)
+    h[data[i]] += 1;
+```
+- `reduction(+ : h[:B])`: each thread gets a zeroed copy of h[0..B-1], copies are added (+) into h at the end
+- `h[:B]` is an array section `[start : length]`, start defaults to 0
+- Needs raw pointer: OpenMP reductions only understand scalars, C arrays and pointer sections, not `std::vector`
+- Result is added into existing `hist`, so zero it before each call
+
+**Results (best of 3, 4 threads)**
+
+| Version   | Time    | Speedup | Correct |
+|-----------|---------|---------|---------|
+| naive     | ~47ms   | 1.00x   | yes     |
+| race      | ~452ms  | ~0.10x  | no (~1.5% lost) |
+| local     | ~23ms   | ~2.1x   | yes     |
+
+**OpenMP constructs learned**
+- `#pragma omp parallel { }`: fork a team, every thread runs the whole block. Variables declared inside are private, variables outside are shared. Brace must be on the next line
+- `#pragma omp for schedule(static)`: split iterations into contiguous chunks (32 elements, 2 threads: T0 [0..15], T1 [16..31]). Implicit barrier at the end
+- `#pragma omp critical`: only one thread at a time runs the whole following block. Without it the merge is still a race, just rare (dangerous, passes tests)
+- Closing `}` of parallel: implicit barrier, then threads go back to the pool and the main thread continues alone
+- `nowait`: removes the barrier after `omp for`. Safe only if the code after the loop uses nothing other threads wrote in that loop (safe in histogram_local, each thread only reads its own local next)
+
+**Moral of the story**
+- Never let threads write to shared data in the hot loop: give each thread a private copy, merge once at the end
+- Locks are fine outside the hot loop (B adds vs N adds)
+- Coherence keeps caches consistent but does not make `+=` atomic
+
+**Other learning: cache vs cache line**
+- Cache = small, fast storage close to the core (L1d is 32 KB per core on this CPU)
+- Cache line = the 64-byte unit the cache stores and moves (L1d = 512 slots of 64 bytes)
+    - "Data is in L1" means the cache line containing that data is in one of L1's slots
+- The CPU only tracks whole cache lines, never a single int or address
+    - Touching any byte loads the whole aligned 64-byte block around it (bytes before and after)
+- Each core has its own private L1/L2, so the same line can have copies in several cores
+    - Reading from shared copies is fine
+- Writing requires exclusive ownership: before a core writes a line, every other copy is invalidated (MESI)
+    - Keeps every core seeing the latest value (cache coherence)
+- If multiple cores write to the same cache line, it bounces between them (ping-pong): each write forces a ~40ns transfer instead of a ~1ns L1 hit
+    - Happens even if the cores write different variables on the same line (false sharing)
+    
+**Next session**
+- Fill in reduction timing, add critical and atomic versions
+- Advanced histogram: skewed input (90% in bin 0)
+- Multiple sub-histograms per thread to break store-to-load dependency
+- `uint8_t` data, OMP_NUM_THREADS = 1/2/4 sweep
+
+
+
 # 04 Oct 2026 (Matrix Multiplication)
 
 **FLOP**
