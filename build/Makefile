@@ -129,29 +129,29 @@ vector_add/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/build
 .PHONY : vector_add/fast
 
-src/histogram_build.o: src/histogram_build.cpp.o
-.PHONY : src/histogram_build.o
+src/histogram_advanced.o: src/histogram_advanced.cpp.o
+.PHONY : src/histogram_advanced.o
 
 # target to build an object file
-src/histogram_build.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_build.cpp.o
-.PHONY : src/histogram_build.cpp.o
+src/histogram_advanced.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.o
+.PHONY : src/histogram_advanced.cpp.o
 
-src/histogram_build.i: src/histogram_build.cpp.i
-.PHONY : src/histogram_build.i
+src/histogram_advanced.i: src/histogram_advanced.cpp.i
+.PHONY : src/histogram_advanced.i
 
 # target to preprocess a source file
-src/histogram_build.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_build.cpp.i
-.PHONY : src/histogram_build.cpp.i
+src/histogram_advanced.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.i
+.PHONY : src/histogram_advanced.cpp.i
 
-src/histogram_build.s: src/histogram_build.cpp.s
-.PHONY : src/histogram_build.s
+src/histogram_advanced.s: src/histogram_advanced.cpp.s
+.PHONY : src/histogram_advanced.s
 
 # target to generate assembly for a file
-src/histogram_build.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_build.cpp.s
-.PHONY : src/histogram_build.cpp.s
+src/histogram_advanced.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.s
+.PHONY : src/histogram_advanced.cpp.s
 
 # Help Target
 help:
@@ -162,9 +162,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... vector_add"
-	@echo "... src/histogram_build.o"
-	@echo "... src/histogram_build.i"
-	@echo "... src/histogram_build.s"
+	@echo "... src/histogram_advanced.o"
+	@echo "... src/histogram_advanced.i"
+	@echo "... src/histogram_advanced.s"
 .PHONY : help
 
 
