@@ -112,6 +112,35 @@ void histogram_multiK(vector<int>& data, size_t N, vector<int>& hist, int B) {
         hist[data[i]] += 1;
 }
 
+// Try to store by uint8 instead
+// Faster by 1.3-1.5x compared to histogram_multi_4
+// Reasons:
+// - uint8_t (1 byte) vs int (4 bytes)
+// - data array is on RAM and not fit into L1/L2 (so reduce the time asking RAM for data)
+// - 4x fewer cachelines to fetch (1e8 elements then drop from 25M to 6.25M)
+// - 4x less DRAM bandwidth used and fewer load instructions
+
+template <typename T>
+void histogram_multi_t(const vector<T>& data, size_t N, vector<int>& hist, int B) {
+    #pragma omp parallel
+    {
+        vector<int> l0(B, 0), l1(B, 0), l2(B, 0), l3(B, 0);
+
+        #pragma omp for schedule(static) nowait
+        for (size_t i = 0; i < N - N % 4; i += 4) {
+            l0[data[i]]     += 1;
+            l1[data[i + 1]] += 1;
+            l2[data[i + 2]] += 1;
+            l3[data[i + 3]] += 1;
+        }
+
+        #pragma omp critical
+        for (int b = 0; b < B; b++)
+            hist[b] += l0[b] + l1[b] + l2[b] + l3[b];
+    }
+    for (size_t i = N - N % 4; i < N; i++)
+        hist[data[i]] += 1;
+}
 
 int main() {
     // Declare size of B and N
@@ -180,10 +209,13 @@ int main() {
         cout << "Sanity check: " << total << endl;
         cout << "hist[0..3] = " << hist[0] << " " << hist[1] << " " << hist[2] << " " << hist[3] << endl;
 
+        // unit8 test
         fill(hist.begin(), hist.end(), 0);
+        vector<uint8_t> data8(data.begin(), data.end());
+
         {
-            ScopedTimer t{"histogram_multi_32"};
-            histogram_multiK<32>(data, N, hist, B);
+            ScopedTimer t{"histogram_multi_uint8"};
+            histogram_multi_t(data8, N, hist, B);
 
         }
 
@@ -195,3 +227,6 @@ int main() {
 
     return 0;
 }
+
+// next: inspect why 5 cycles stall? why false dependencies? why l1 conflicts?
+// one more optimization?

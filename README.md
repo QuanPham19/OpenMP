@@ -1,6 +1,120 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 18 Oct 2026 (Histogram Building - Advanced)
+
+**Problem statement**
+- Same as 11 Oct: N = 1e8, B = 256, output hist[b] = count of value b
+- New input: skewed distribution
+    - 90% of values in bins {0, 1, 2}, 10% uniform over all 256 bins
+    - Result: bins 0-2 get ~30M each, other bins ~40K each
+```cpp
+uniform_int_distribution<int> dist_all(0, B - 1);   // any bin
+uniform_int_distribution<int> dist_hot(0, 2);       // bins 0, 1, 2 only
+bernoulli_distribution is_hot(0.9);                 // true 90% of the time
+data[i] = is_hot(rng) ? dist_hot(rng) : dist_all(rng);
+```
+- Baseline: histogram_reduction from last session
+
+**Version 4: histogram_multi (K = 4 sub-histograms per thread)**
+- Each thread keeps 4 private histograms l0..l3, element i goes to l(i % 4), merge at the end
+```cpp
+#pragma omp for schedule(static) nowait
+for (size_t i = 0; i < N - N % 4; i += 4) {
+    l0[data[i]]     += 1;
+    l1[data[i + 1]] += 1;
+    l2[data[i + 2]] += 1;
+    l3[data[i + 3]] += 1;
+}
+```
+- Speed: ~20ms best vs ~32ms reduction (~1.6x)
+- Why it works: instruction-level parallelism (ILP) inside one core
+    - A core does not finish one instruction before starting the next: pipelining + out-of-order execution keep many increments in flight
+    - Result is guaranteed as if sequential, so the core must respect dependencies
+    - `h[1] += 1` twice in a row: second load must wait for first store (store-to-load forwarding, ~6-8 cycles on Zen 3)
+    - Skewed data = same bin hit back-to-back very often = core stalls on its own writes
+    - l0[1] and l2[1] are different addresses: no dependency, increments overlap
+
+![alt text](image.png)
+![alt text](image-1.png)
+
+- Same fix as last session at a different scale
+
+| Scale | Collision on hist[0] | Symptom | Fix |
+|---|---|---|---|
+| Across threads | Two cores | Race + cache line ping-pong | One private hist per thread |
+| Inside one core | Nearby iterations | Stall waiting for previous store | Several sub-hists per thread |
+
+- Difference: across cores collisions are per cache line (64B), inside one core only the exact same address matters
+
+**Version 5: sweep K = 4, 8, 16, 32**
+- Generic version with K sub-histograms in one buffer: `local[k * B + data[i + k]] += 1`
+- Expectation: gain stops once K covers latency x throughput (~4-8), more K only adds footprint and merge cost
+
+| K | Time range (all runs) | Verdict |
+|---|---|---|
+| 1 (reduction) | ~32-43ms | baseline |
+| 4 | ~20-33ms | best |
+| 8 | ~22-30ms | tied with 4 (within noise) |
+| 16 | ~27-33ms | mildly worse |
+| 32 | ~70-76ms | ~3x worse, consistent |
+
+- K = 32 slowdown is real, root cause not yet proven
+    - Likely: L1 set conflicts. Sub-hists are exactly 1 KB apart, L1 set = address mod 4096, so hot bins of all sub-hists land in only 4 of 64 sets. Each set has 8 ways; K = 32 needs 8 per thread, 16 with both hyperthreads sharing L1 -> constant eviction even though L1 is mostly empty
+    - Unlikely: 4K aliasing (would have hurt K = 8 too), code bloat, merge cost
+    - Tests to confirm: pad stride (`BP = B + 16`), or 1 thread per core (`OMP_NUM_THREADS=2 OMP_PLACES=cores`)
+
+**Version 6: histogram_multi_uint8**
+- Same as multi K = 4, but data stored as `vector<uint8_t>` (values < 256)
+- Speed: 17.2ms / 17.3ms (fastest and by far the most stable)
+- Why faster:
+    - data is 100 MB instead of 400 MB, far bigger than L3 (32 MB) either way: every line comes from RAM once
+    - 64 elements per cache line instead of 16 -> 6.25M line fetches instead of 25M
+    - Prefetcher hides the waiting, but the bytes still have to travel from RAM
+    - Minimum time = bytes / bandwidth: int 400 MB / 48 GB/s = 8.3ms, uint8 = 2.1ms. Memory is no longer close to the counting time
+- Why more stable:
+    - The 64-core EPYC is shared with other VMs, all using the same memory channels
+    - int versions swing 10-35% with neighbour traffic, uint8 has enough bandwidth headroom to not notice
+- Same trick real GBDT libraries use (XGBoost / LightGBM store binned features as uint8)
+
+**Overall Results (skewed input, 4 threads, best across all runs)**
+
+| Version | Best time | Speedup vs reduction |
+|---|---|---|
+| reduction | ~32ms | 1.00x |
+| multi K=4 | ~20ms | ~1.6x |
+| multi K=8 | ~22ms | ~1.5x |
+| multi K=16 | ~27ms | ~1.2x |
+| multi K=32 | ~70ms | ~0.45x |
+| multi uint8 (K=4) | ~17ms | ~1.8x |
+
+*Shared 4-vCPU Codespace (AMD EPYC 7763, 2 cores x 2 threads). Run-to-run noise ~15-20%.*
+
+**Storage of integer types**
+
+| Type | Bytes | Range | Per 64B line | 1e8 elements |
+|---|---|---|---|---|
+| int8_t / uint8_t | 1 | -128..127 / 0..255 | 64 | 100 MB |
+| int16_t / uint16_t | 2 | -32768..32767 / 0..65535 | 32 | 200 MB |
+| int / int32_t / uint32_t | 4 | ~±2.1e9 / 0..~4.3e9 | 16 | 400 MB |
+| int64_t / uint64_t | 8 | ~±9.2e18 / 0..~1.8e19 | 8 | 800 MB |
+
+**Moral of the story**
+- Writes to an address that something else must then read are the real cost: 
+    - Accross threads: race, ping-pong cache invalidation  
+    - Single thread: the same core's next instruction (stall)
+- Same fix at every scale: replicate the counter, merge once at the end
+- Replicate only enough to hide latency (K ~ 4-8), beyond that footprint and cache set conflicts take over
+- Smaller data types cut memory traffic: a little faster, a lot more stable on shared hardware
+- Personal notes:
+    - seems like the runtime issue mainly caused by writing on an address that will be used later
+    - but this time instead of 'cross-threads' cache ping-pong issue, we have the issue 'inside single thread' that is many write pending for the same address, and only 1 can be approved anytime
+    - also seems like compressing data size and contiguous design is always beneficial
+
+**Next session**
+- Exercise 3: scheduling and load imbalance (Mandelbrot), `schedule(static/dynamic/guided)` and chunk size
+- Optional: confirm K = 32 cause with padding or 1 thread per core
+
 # 11 Oct 2026 (Histogram Building)
 
 **Problem statement**
@@ -78,6 +192,10 @@ for (size_t i = 0; i < N; i++)
 - Never let threads write to shared data in the hot loop: give each thread a private copy, merge once at the end
 - Locks are fine outside the hot loop (B adds vs N adds)
 - Coherence keeps caches consistent but does not make `+=` atomic
+- Personal notes:
+    - vector add: no re-use, simple operation, independent in the loop, memory-bound
+    - matrix multiply: a lot of reuse, need to be careful what stay in fast cache, but still write to different place
+    - histogram build: got some reuse, cache is not an issue, but threads/core interaction and writing to the same memory address is the new challenge
 
 **Other learning: cache vs cache line**
 - Cache = small, fast storage close to the core (L1d is 32 KB per core on this CPU)
