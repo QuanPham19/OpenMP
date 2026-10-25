@@ -20,6 +20,8 @@ add_executable(vector_add
   # src/vector_add.cpp
   # src/matrix_multiply.cpp
   # src/histogram_build.cpp
-  src/histogram_advanced.cpp)
+  # src/histogram_advanced.cpp
+  # src/false_sharing.cpp
+  src/load_imbalance.cpp)
 target_link_libraries(vector_add PRIVATE OpenMP::OpenMP_CXX)
 target_compile_options(vector_add PRIVATE -O3 -march=native -fopenmp)

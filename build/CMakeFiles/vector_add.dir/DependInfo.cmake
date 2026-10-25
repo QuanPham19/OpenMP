@@ -8,7 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/workspaces/OpenMP/src/histogram_advanced.cpp" "CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.o" "gcc" "CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.o.d"
+  "/workspaces/OpenMP/src/load_imbalance.cpp" "CMakeFiles/vector_add.dir/src/load_imbalance.cpp.o" "gcc" "CMakeFiles/vector_add.dir/src/load_imbalance.cpp.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

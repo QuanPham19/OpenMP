@@ -1,6 +1,153 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 25 Oct 2026 (Scheduling and Load Imbalance)
+
+**Why Mandelbrot**
+- Not for the result itself: a benchmark where each loop iteration costs a very different amount of work
+- Previous exercises had uniform work per iteration, so `schedule(static)` was automatically fair
+- Real cases with the same shape: GBDT tree nodes of different sizes, ray tracing, sparse matrix rows
+
+**Problem statement**
+- Image of W x H pixels, each pixel (w, h) maps to a complex number c = cr + i*ci
+    - `cr = -2.0 + 3.0 * w / W` (real part -2.0 .. 1.0)
+    - `ci = -1.5 + 3.0 * h / H` (imaginary part -1.5 .. 1.5)
+- Iterate z = z² + c from z = 0 until |z| > 2 or MAXIT iterations
+- Output: `iters[h*W + w]` = iterations before escape (MAXIT if never escapes)
+- Standard settings: W = H = 2000, MAXIT = 1000
+- No input array: input is only W, H, MAXIT and the region
+- Work per pixel: 1 iteration (far outside) to 1000 (inside the set)
+```
+Pixel (0,0): c = -2.0 - 1.5i  → escapes after 1 step  → 1
+Pixel (4,4): c =  0.4 + 0.9i  → escapes after 3 steps → 3
+Pixel (3,2): c = -0.2 - 0.3i  → inside the set        → 1000
+(5x5 grid example)
+```
+- Shape: top and bottom rows cheap, middle rows (ci near 0) expensive
+
+**Version 0: mandel_naive**
+- Rows outside, columns inside → contiguous writes
+    - Columns outside would jump W ints per write, and once parallelized over columns, neighbouring columns on different threads share cache lines (false sharing)
+- Speed: ~2330ms
+- Small problem sizes (50 x 50, 1.5ms) are useless: thread startup and wake-up cost the same as the whole workload
+
+**Version 1: mandel_parallel, schedule(static)**
+- T0 rows 0-499, T1 500-999, T2 1000-1499, T3 1500-1999
+- Speed: ~1140ms (~2.0x)
+- Measured busy/wait per thread with `omp_get_wtime()` and `nowait`
+
+| Thread | Rows | Busy | Wait |
+|---|---|---|---|
+| T0 | 0-499 (top, cheap) | ~37ms | ~1110ms |
+| T1 | 500-999 (middle) | ~1140ms | ~5ms |
+| T2 | 1000-1499 (middle) | ~1145ms | ~0ms |
+| T3 | 1500-1999 (bottom, cheap) | ~40ms | ~1105ms |
+
+- Imbalance ratio = max(busy) / mean(busy) ≈ 1.94 (1.0 is perfect)
+- Still 2x because T1 and T2 sit on different physical cores, and their idle hyperthread siblings (T0, T3) gave them the whole core
+
+**Version 2: schedule(static, 1)**
+- Rows dealt round-robin: T0 0, 4, 8, ... T1 1, 5, 9, ...
+- Every thread gets a fair mix of cheap and expensive rows: busy ~620-640ms each, wait ~0-50ms
+- Speed: ~630ms (~3.7x on 2 physical cores)
+- Works because neighbouring rows have similar cost, and has no runtime overhead (assignment decided up front)
+
+**Version 3: schedule(dynamic, 16)**
+- Shared queue of 125 chunks (16 rows each), a free thread grabs the next one (atomic counter)
+- Balances time, not rows: rows per thread vary (368-640, always multiples of 16), busy time identical
+- Speed: ~624ms, tied with static,1 on average but more consistent (static,1 had one 789ms round, dynamic never above ~650ms)
+- Adapts to anything that slows a thread: uneven work, busy hyperthread sibling, neighbour VMs
+
+**Version 4: mandel_simd (dynamic + 8 pixels per thread at once)**
+- 8 neighbouring pixels iterate together with `#pragma omp simd`, escaped lanes frozen with a mask
+- Speed: ~535ms (~1.2x over dynamic)
+- Small gain, likely because:
+    - Hyperthreads were already filling the FP latency slots
+    - Compiler may not fully vectorize the masked loop (check with `-fopt-info-vec-optimized`)
+    - Lanes run in lockstep: a group waits for its slowest pixel
+
+**Version 5: mandel_fast (dynamic + SIMD + interior test)**
+- Exact closed-form test for the main cardioid and period-2 bulb: those pixels never escape, answer MAXIT with a few multiplies instead of 1000 iterations
+```cpp
+double xq = cr - 0.25, q = xq * xq + ci * ci;
+if (q * (q + xq) <= 0.25 * ci * ci) return MAXIT;                 // cardioid
+if ((cr + 1.0) * (cr + 1.0) + ci * ci <= 0.0625) return MAXIT;    // bulb
+```
+- Speed: ~78ms (~8x over dynamic, ~30x over naive), output matches naive exactly
+- Almost all of the 8x comes from doing less work, not doing work faster
+
+**Results (best of 5, 4 threads)**
+
+| Version | Time | vs naive | vs dynamic |
+|---|---|---|---|
+| naive | ~2330ms | 1.0x | - |
+| static | ~1140ms | ~2.0x | - |
+| static, 1 | ~630ms | ~3.7x | - |
+| dynamic, 16 | ~624ms | ~3.7x | 1.0x |
+| dynamic + SIMD | ~535ms | ~4.4x | ~1.2x |
+| dynamic + SIMD + interior | ~78ms | ~30x | ~8x |
+
+*Shared 4-vCPU Codespace (AMD EPYC 7763, 2 cores x 2 threads).*
+
+**Compute or memory bound**
+- Compute: ~1750 cycles per pixel
+- Memory: no input, 4 bytes written per pixel → 16 MB total, ~25 MB/s (0.05% of DRAM bandwidth)
+- Latency-bound compute: why hyperthreads helped here but not on the histogram
+
+**OpenMP schedule modes**
+
+| Schedule | How it splits | Use when |
+|---|---|---|
+| `static` | One contiguous block per thread | Uniform work |
+| `static, n` | Blocks of n dealt round-robin | Cost varies smoothly and predictably |
+| `dynamic, n` | Shared queue of n-sized chunks | Unpredictable cost (n: overhead vs tail imbalance) |
+| `guided, n` | Dynamic, chunks shrink from ~remaining/threads down to n | Fewer grabs early, fine balancing at the end |
+| `auto` | Runtime decides | Rarely useful |
+| `runtime` | Read from `OMP_SCHEDULE` env var | Sweeping schedules without recompiling |
+
+**Moral of the story**
+- Uneven work per iteration breaks `static`: the run takes as long as the slowest thread
+- Measure per-thread busy/wait to see imbalance, wall time alone can hide it (hyperthreads hid it here)
+- `static, 1` when the cost pattern is known and smooth, `dynamic` when it isn't
+- Latency-bound code gets real gains from hyperthreads, throughput-bound code doesn't
+- A better algorithm beats better parallelism: all OpenMP work gave 3.7x, one exact math shortcut gave another 8x
+
+**Next session**
+- Optional: chunk size sweep (1, 4, 64, 256) and `guided` via `schedule(runtime)`
+- Optional: SIMD with 1 thread per core (`OMP_NUM_THREADS=2 OMP_PLACES=cores`) to separate SIMD from hyperthread gains
+- Exercise 4 options: Monte Carlo π (scaling and thread placement) or quicksort with tasks
+
+# 25 Oct 2026 (False Sharing)
+
+**Problem statement**
+- T = 4 threads, each increments its own counter ITER = 1e8 times
+- No shared variable, no race: any slowdown is purely from counters on the same cache line
+- `volatile` pointer forces a real memory write every increment (otherwise compiler keeps it in a register)
+
+**Versions**
+- serial: 1 thread, 1e8 increments (reference)
+- packed: `long cnt[4]`, all 4 counters on one 64B cache line
+- padded: `struct alignas(64) { long v; } cnt[4]`, one counter per line
+- local: count in a local variable, write `cnt[t]` once at the end
+
+**Results (best of 2, 4 threads)**
+
+| Version | Total increments | Time | Throughput vs serial |
+|---|---|---|---|
+| serial | 1e8 | ~37ms | 1.0x |
+| packed | 4e8 | ~4350ms | ~0.03x |
+| padded | 4e8 | ~68ms | ~2.2x |
+| local | 4e8 | ~74ms | ~2.0x |
+
+**Notes**
+- packed is ~64x slower than padded for the same work: ~43ns per increment = one cache line transfer between cores per write
+- padded = local: once each counter has its own line, it is effectively private
+- padded = use more bytes for each element (typically 64 bytes), so that it is not on the same cache line
+
+**Moral of the story**
+- Different variables on the same cache line behave like one shared variable
+- Fix: pad per-thread data to 64 bytes, or accumulate locally and write once
+
 # 18 Oct 2026 (Histogram Building - Advanced)
 
 **Problem statement**

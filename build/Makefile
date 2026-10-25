@@ -129,29 +129,29 @@ vector_add/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/build
 .PHONY : vector_add/fast
 
-src/histogram_advanced.o: src/histogram_advanced.cpp.o
-.PHONY : src/histogram_advanced.o
+src/load_imbalance.o: src/load_imbalance.cpp.o
+.PHONY : src/load_imbalance.o
 
 # target to build an object file
-src/histogram_advanced.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.o
-.PHONY : src/histogram_advanced.cpp.o
+src/load_imbalance.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/load_imbalance.cpp.o
+.PHONY : src/load_imbalance.cpp.o
 
-src/histogram_advanced.i: src/histogram_advanced.cpp.i
-.PHONY : src/histogram_advanced.i
+src/load_imbalance.i: src/load_imbalance.cpp.i
+.PHONY : src/load_imbalance.i
 
 # target to preprocess a source file
-src/histogram_advanced.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.i
-.PHONY : src/histogram_advanced.cpp.i
+src/load_imbalance.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/load_imbalance.cpp.i
+.PHONY : src/load_imbalance.cpp.i
 
-src/histogram_advanced.s: src/histogram_advanced.cpp.s
-.PHONY : src/histogram_advanced.s
+src/load_imbalance.s: src/load_imbalance.cpp.s
+.PHONY : src/load_imbalance.s
 
 # target to generate assembly for a file
-src/histogram_advanced.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/histogram_advanced.cpp.s
-.PHONY : src/histogram_advanced.cpp.s
+src/load_imbalance.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/load_imbalance.cpp.s
+.PHONY : src/load_imbalance.cpp.s
 
 # Help Target
 help:
@@ -162,9 +162,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... vector_add"
-	@echo "... src/histogram_advanced.o"
-	@echo "... src/histogram_advanced.i"
-	@echo "... src/histogram_advanced.s"
+	@echo "... src/load_imbalance.o"
+	@echo "... src/load_imbalance.i"
+	@echo "... src/load_imbalance.s"
 .PHONY : help
 
 
