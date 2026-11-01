@@ -126,12 +126,12 @@ void qs_task(int* a, long lo, long hi, long cutoff) {
         return;
     }
 
-    long p = partition(a, lo, hi);
+    long p = partition(a, lo, hi);      // Do the swap violation
     #pragma omp task
-    qs_task(a, lo, p, cutoff);
+    qs_task(a, lo, p, cutoff);          // Package the task in the pool and move on
     #pragma omp task
     qs_task(a, p + 1, hi, cutoff);
-    #pragma omp taskwait
+    #pragma omp taskwait                // Pause until both 2 tasks above are done
 }
 
 void sort_task(int* a, long N, long cutoff) {
@@ -141,6 +141,16 @@ void sort_task(int* a, long N, long cutoff) {
         qs_task(a, 0, N - 1, cutoff);    // the others pick up tasks as they appear
     }                                    // barrier: waits until every task is done
 }
+
+
+// Difference:
+// Serial: No task pool, traverse the tree (call stack) from left -> right -> root
+// Smart task: 
+// - If size large -> use task pool, whichever thread is free will grab. 
+// - If task small -> follow the call stack on the original thread (like serial)
+
+// So the full picture: serial is one chef doing every step himself; tasks is a ticket board shared by the whole kitchen; 
+// and the cutoff is the chef’s judgment about which jobs are worth a ticket.
 
 int main() {
     // Input: N random ints, fixed seed so every version sorts the same data
@@ -215,7 +225,6 @@ int main() {
             sort_task(a.data(), N, 1000000);
         }
         cout << "correct: " << (a == ref ? "yes" : "NO") << endl;
-
     }
 
 }

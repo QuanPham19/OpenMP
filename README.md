@@ -1,6 +1,105 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 01 Nov 2026 (Quicksort with Tasks)
+
+**Why this exercise**
+- Every exercise so far was a loop: `parallel for` splits known iterations up front
+- Quicksort is recursive: each step splits an array into two pieces of unknown, uneven size, so there is no loop to put a pragma on
+- Same shape as GBDT tree building (each node splits into children of different sizes), the stepping stone to the capstone
+
+**Problem statement**
+- Input: N = 1e7 random ints in [0, 1e9] (`mt19937`, seed 42)
+- Output: array sorted ascending, in place
+- Check: `a == ref` where ref is a copy sorted with `std::sort` (checks sorted + same elements)
+- Reset `a = original` before every run, outside the timer
+
+**Hoare partition with median-of-three**
+- Sort a[lo], a[mid], a[hi] and use the middle value as pivot (never the min or max of the three)
+- i starts at lo-1, j at hi+1: the `do ... while` loops move first, then check, so the first cells checked are a[lo] and a[hi]
+- i stops at a value ≥ pivot, j stops at a value ≤ pivot, swap, repeat until they cross, return j
+- Result: [lo, j] all ≤ pivot, [j+1, hi] all ≥ pivot. Pivot is not necessarily in its final place, so recurse on [lo, j] and [j+1, hi]
+- No bounds check needed: median-of-three guarantees each pointer finds a stopping value
+- Equal-to-pivot values stop both pointers: keeps splits balanced with many duplicates
+
+**Version 0: qs_serial**
+- Plain recursion: depth-first, left subtree finished completely before the right one starts
+- The call stack is the to-do list: no queue, no locks, no allocation
+- Speed: ~912ms
+
+**OpenMP tasks**
+```cpp
+void qs_task(int* a, long lo, long hi, long cutoff) {
+    if (lo >= hi) return;
+    if (hi - lo + 1 < cutoff) { qs_serial(a, lo, hi); return; }   // small piece: no task
+
+    long p = partition(a, lo, hi);
+    #pragma omp task                   // package this call with current values → pool
+    qs_task(a, lo, p, cutoff);
+    #pragma omp task
+    qs_task(a, p + 1, hi, cutoff);
+    #pragma omp taskwait               // wait for both children
+}
+
+void sort_task(int* a, long N, long cutoff) {
+    #pragma omp parallel               // create the team once
+    {
+        #pragma omp single             // one thread starts the recursion
+        qs_task(a, 0, N - 1, cutoff);  // others execute tasks as they appear
+    }
+}
+```
+- `#pragma omp task`: applies to the next statement (use `{ }` for several). Do not run now, package it and put it in the task pool; the current thread moves on immediately
+- Variables local to the function (lo, p, hi, cutoff) are copied into the task at creation (firstprivate). Pointer `a` is copied too but points to the same shared array: safe only because the ranges are disjoint
+- Any free thread runs a task, including the parent's own thread
+- `#pragma omp taskwait`: wait for the direct children only (each child waits for its own, so the whole subtree is done). While waiting, the thread can run its own child tasks from the pool on top of the waiting frame
+- `parallel` + `single` live in a wrapper called once: no team means tasks run on one thread; `parallel` inside the recursion means nested teams; no `single` means 4 threads sorting the same array at once
+- Serial: the next call grows the call stack. Task: the next call becomes a ticket in the pool, maybe executed by another thread
+
+**Version 1: sort_task_nocutoff (every split is a task)**
+- Speed: ~5.1-6.4s (~6x slower than serial)
+- ~2e7 tasks, most sorting 1-2 elements (half return immediately at `lo >= hi`)
+- Each task costs ~1µs: allocate descriptor, copy arguments, push to queue (atomics), another thread grabs it (cache lines move), taskwait bookkeeping
+- Every recursion level does the same real work (partitions all N elements once), but the number of tasks doubles per level: bottom levels are almost pure overhead
+- High thread utilization ≠ useful work: all threads busy, mostly with task overhead
+
+**Version 2: sort_task with cutoff**
+- Cutoff = smallest piece size still worth turning into tasks. Below it, sort serially inside the current task
+- N = 1e7, cutoff = 10,000: ~10 levels of tasks, ~2,000 tasks of ~10K elements each, overhead ~0.1% of work
+
+**Results (best of 2, 4 threads)**
+
+| Version | Cutoff | Time | Speedup vs qs_serial |
+|---|---|---|---|
+| qs_serial | - | ~912ms | 1.00x |
+| task, no cutoff | 1 | ~5143ms | ~0.18x |
+| task | 100 | ~467ms | ~2.0x |
+| task | 1,000 | ~384ms | ~2.4x |
+| task | 10,000 | ~395ms | ~2.3x |
+| task | 100,000 | ~380ms | ~2.4x |
+| task | 1,000,000 | ~360ms | ~2.5x |
+| task + std::sort below cutoff | 1,000 | ~399ms | ~2.3x |
+| task + std::sort below cutoff | 10,000 | ~378ms | ~2.4x |
+
+*Shared 4-vCPU Codespace (AMD EPYC 7763, 2 cores x 2 threads).*
+
+**Analogy**
+- Serial: one chef doing every step of the meal himself
+- Tasks: a ticket board shared by the whole kitchen. Heavy jobs get a ticket, anyone free grabs it (including the head chef)
+- Writing a ticket costs time: cutoff = the rule for which jobs are worth a ticket. No cutoff = a ticket for chopping one onion
+- taskwait: before plating, wait for outsourced dishes, but grab your own tickets from the board meanwhile
+- First partition: one big job, empty board, head chef splits alone while everyone waits
+
+**Moral of the story**
+- Tasks handle recursive, irregular work that `parallel for` cannot: the runtime tracks what is pending, not you
+- Task granularity is everything: ~1µs per task must be small compared to the work inside it
+- Same sweet-spot lesson as K sub-histograms and dynamic chunk size
+- At ~2.4x the structure is the limit (2 cores, serial top partition), further gains need a different algorithm
+
+**Next session**
+- Parallel radix sort: 4 passes of histogram (session 2) + prefix sum (new) + scatter, no comparisons, memory-bound
+- Then: GBDT histogram capstone
+
 # 25 Oct 2026 (Scheduling and Load Imbalance)
 
 **Why Mandelbrot**
