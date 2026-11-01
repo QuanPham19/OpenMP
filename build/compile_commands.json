@@ -1,8 +1,8 @@
 [
 {
   "directory": "/workspaces/OpenMP/build",
-  "command": "/usr/bin/g++   -g -std=c++17 -O3 -march=native -fopenmp -fopenmp -o CMakeFiles/vector_add.dir/src/load_imbalance.cpp.o -c /workspaces/OpenMP/src/load_imbalance.cpp",
-  "file": "/workspaces/OpenMP/src/load_imbalance.cpp",
-  "output": "CMakeFiles/vector_add.dir/src/load_imbalance.cpp.o"
+  "command": "/usr/bin/g++   -g -std=c++17 -O3 -march=native -fopenmp -fopenmp -o CMakeFiles/vector_add.dir/src/irregular_task.cpp.o -c /workspaces/OpenMP/src/irregular_task.cpp",
+  "file": "/workspaces/OpenMP/src/irregular_task.cpp",
+  "output": "CMakeFiles/vector_add.dir/src/irregular_task.cpp.o"
 }
 ]

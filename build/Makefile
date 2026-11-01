@@ -129,29 +129,29 @@ vector_add/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/build
 .PHONY : vector_add/fast
 
-src/load_imbalance.o: src/load_imbalance.cpp.o
-.PHONY : src/load_imbalance.o
+src/irregular_task.o: src/irregular_task.cpp.o
+.PHONY : src/irregular_task.o
 
 # target to build an object file
-src/load_imbalance.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/load_imbalance.cpp.o
-.PHONY : src/load_imbalance.cpp.o
+src/irregular_task.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/irregular_task.cpp.o
+.PHONY : src/irregular_task.cpp.o
 
-src/load_imbalance.i: src/load_imbalance.cpp.i
-.PHONY : src/load_imbalance.i
+src/irregular_task.i: src/irregular_task.cpp.i
+.PHONY : src/irregular_task.i
 
 # target to preprocess a source file
-src/load_imbalance.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/load_imbalance.cpp.i
-.PHONY : src/load_imbalance.cpp.i
+src/irregular_task.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/irregular_task.cpp.i
+.PHONY : src/irregular_task.cpp.i
 
-src/load_imbalance.s: src/load_imbalance.cpp.s
-.PHONY : src/load_imbalance.s
+src/irregular_task.s: src/irregular_task.cpp.s
+.PHONY : src/irregular_task.s
 
 # target to generate assembly for a file
-src/load_imbalance.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/load_imbalance.cpp.s
-.PHONY : src/load_imbalance.cpp.s
+src/irregular_task.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/irregular_task.cpp.s
+.PHONY : src/irregular_task.cpp.s
 
 # Help Target
 help:
@@ -162,9 +162,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... vector_add"
-	@echo "... src/load_imbalance.o"
-	@echo "... src/load_imbalance.i"
-	@echo "... src/load_imbalance.s"
+	@echo "... src/irregular_task.o"
+	@echo "... src/irregular_task.i"
+	@echo "... src/irregular_task.s"
 .PHONY : help
 
 
