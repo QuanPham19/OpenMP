@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "CMakeFiles/vector_add.dir/src/irregular_task.cpp.o"
-  "CMakeFiles/vector_add.dir/src/irregular_task.cpp.o.d"
+  "CMakeFiles/vector_add.dir/src/radix_sort.cpp.o"
+  "CMakeFiles/vector_add.dir/src/radix_sort.cpp.o.d"
   "vector_add"
   "vector_add.pdb"
 )

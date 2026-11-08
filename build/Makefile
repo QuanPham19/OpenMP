@@ -129,29 +129,29 @@ vector_add/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/build
 .PHONY : vector_add/fast
 
-src/irregular_task.o: src/irregular_task.cpp.o
-.PHONY : src/irregular_task.o
+src/radix_sort.o: src/radix_sort.cpp.o
+.PHONY : src/radix_sort.o
 
 # target to build an object file
-src/irregular_task.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/irregular_task.cpp.o
-.PHONY : src/irregular_task.cpp.o
+src/radix_sort.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/radix_sort.cpp.o
+.PHONY : src/radix_sort.cpp.o
 
-src/irregular_task.i: src/irregular_task.cpp.i
-.PHONY : src/irregular_task.i
+src/radix_sort.i: src/radix_sort.cpp.i
+.PHONY : src/radix_sort.i
 
 # target to preprocess a source file
-src/irregular_task.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/irregular_task.cpp.i
-.PHONY : src/irregular_task.cpp.i
+src/radix_sort.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/radix_sort.cpp.i
+.PHONY : src/radix_sort.cpp.i
 
-src/irregular_task.s: src/irregular_task.cpp.s
-.PHONY : src/irregular_task.s
+src/radix_sort.s: src/radix_sort.cpp.s
+.PHONY : src/radix_sort.s
 
 # target to generate assembly for a file
-src/irregular_task.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/irregular_task.cpp.s
-.PHONY : src/irregular_task.cpp.s
+src/radix_sort.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/radix_sort.cpp.s
+.PHONY : src/radix_sort.cpp.s
 
 # Help Target
 help:
@@ -162,9 +162,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... vector_add"
-	@echo "... src/irregular_task.o"
-	@echo "... src/irregular_task.i"
-	@echo "... src/irregular_task.s"
+	@echo "... src/radix_sort.o"
+	@echo "... src/radix_sort.i"
+	@echo "... src/radix_sort.s"
 .PHONY : help
 
 

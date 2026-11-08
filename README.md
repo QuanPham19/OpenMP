@@ -1,6 +1,157 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 08 Nov 2026 (Radix Sort: Histogram + Prefix Sum + Scatter)
+
+**Why this exercise**
+- Quicksort topped out at ~2.4x: comparisons are branchy, the top partition is serial
+- Radix sort never compares: sorts one digit at a time by counting, each pass is simple linear work
+- Reuses the histogram (11 Oct), adds the prefix sum pattern (how parallel threads know where to write)
+
+**Problem statement**
+- Input: N = 1e7 random ints in [0, 1e9], seed 42 (same as quicksort session)
+- Output: sorted ascending in `a`
+- Digit = 8 bits (1 byte) → 256 bins, 4 passes (bytes 0 to 3), least significant first (LSD)
+- Extra memory: one buffer of N ints, `in`/`out` swap roles each pass (4 swaps → result back in `a`)
+
+**What a "digit" is**
+- A digit is one position in base B, with B possible values. Base 10: 10 values. Base 256: one byte, 256 values
+- An int is 4 bytes → 4 base-256 digits. Example: 1,000,000 = 0·256³ + 15·256² + 66·256 + 64
+- Extract digit k: `(x >> 8*k) & 0xFF`
+    - `x >> 8k` = divide by 256^k (drop lower digits)
+    - `& 0xFF` = keep lowest 8 bits = mod 256 (drop higher digits)
+    - Same as `(x / 10^k) % 10` in base 10, but 1 cycle each
+- Why base 256 instead of 10: 4 passes instead of 10, cheap bit operations, 256 counters = 2 KB fits L1
+
+**How LSD radix sort works**
+```
+input:              [170, 45, 75, 90, 802, 24, 2, 66]
+pass 1 (ones):      [170, 90, 802, 2, 24, 45, 75, 66]
+pass 2 (tens):      [802, 2, 24, 45, 66, 170, 75, 90]
+pass 3 (hundreds):  [2, 24, 45, 66, 75, 90, 170, 802]
+```
+- One pass = histogram → prefix sum → scatter
+    - Histogram: `count[b]` = elements with digit b
+    - Prefix sum: `start[b] = count[0] + ... + count[b-1]` = where bin b begins in the output. The ORDER comes from here (bins in increasing order)
+    - Scatter: walk input front to back, `out[start[d(x)]++] = x`
+- Each pass must be stable: equal digits keep their relative order from the previous pass
+    - Every pass after the first must be stable: the incoming order encodes the lower digits already sorted
+    - Example: 12 and 13 have the same tens digit; pass 1 put 12 first (ones 2 < 3), pass 2 must keep it
+
+**Version 0: radix_serial**
+```cpp
+for (int k = 0; k < 4; k++) {
+    int shift = 8 * k;
+    long count[256] = {0};
+    for (long i = 0; i < N; i++) count[(in[i] >> shift) & 0xFF]++;
+    long start[256], sum = 0;
+    for (int b = 0; b < 256; b++) { start[b] = sum; sum += count[b]; }
+    for (long i = 0; i < N; i++) out[start[(in[i] >> shift) & 0xFF]++] = in[i];
+    swap(in, out);
+}
+```
+- Speed: ~166ms, single thread
+    - ~5.5x faster than qs_serial (~912ms)
+    - ~2.2x faster than best 4-thread quicksort (~360ms)
+- Why so much faster:
+    - Fewer passes: ~23 recursion levels (N log₂ N) vs 4 passes (8 visits per element: count + scatter). Cost per level/pass is similar (~40ms), radix just has far fewer
+    - No comparisons, no data-dependent branches: quicksort's `a[i] < pivot` is a coin flip on random data (~50% mispredicted, ~15 cycles each)
+    - Escapes the comparison-sort lower bound (~N log₂ N comparisons): cost ~ passes × N, linear
+- Why it is not the default (std::sort is introsort):
+    - Keys must be digit-shaped (ints, floats with bit tricks), no custom comparators
+    - Needs an N-sized buffer (std::sort is in place)
+    - Cost grows with key width (64-bit = 8 passes)
+    - Fixed per-pass overhead hurts small arrays; no gain on partly sorted input
+    - Used where it fits: GPU sorting (Thrust/CUB), databases, index building
+
+**Version 1: radix_parallel**
+- Problem: threads scatter at the same time, each needs its own disjoint output slots
+- A single shared `start[b]++` would race. Disjointness has to be BUILT with per-(thread, bin) tables
+```cpp
+vector<array<long, 256>> cnt(T);   // cnt[t][b]: thread t's count for bin b
+vector<array<long, 256>> off(T);   // off[t][b]: where thread t writes bin b next
+
+#pragma omp parallel
+{
+    int t = omp_get_thread_num();
+    int* in = a.data(); int* out = buf.data();   // private pointers, each thread swaps its own
+
+    for (int k = 0; k < 4; k++) {
+        int shift = 8 * k;
+        cnt[t].fill(0);                          // reset EVERY pass
+
+        #pragma omp for schedule(static)         // contiguous block per thread
+        for (long i = 0; i < N; i++) cnt[t][(in[i] >> shift) & 0xFF]++;
+
+        #pragma omp single                       // ~1,000 adds, microseconds
+        {
+            long sum = 0;
+            for (int b = 0; b < 256; b++)        // bins outer
+                for (int t2 = 0; t2 < T; t2++) { // threads inner
+                    off[t2][b] = sum;
+                    sum += cnt[t2][b];
+                }
+        }
+
+        #pragma omp for schedule(static)         // SAME split as counting
+        for (long i = 0; i < N; i++) {
+            int b = (in[i] >> shift) & 0xFF;
+            out[off[t][b]++] = in[i];
+        }
+        swap(in, out);
+    }
+}
+```
+- Counts are not local this time: the offset step must read every thread's row → shared table, each thread writes only its own row (2 KB each, no false sharing)
+- Offset = running sum, bins outer, threads inner
+```
+            bin 0   bin 1   bin 2
+count T0:     2       1       1      visiting order: (b0,T0)(b0,T1)(b1,T0)(b1,T1)(b2,T0)(b2,T1)
+count T1:     1       2       0      running sum:       0      2      3      4      6      7
+off T0:       0       3       6
+off T1:       2       4       7
+```
+
+**Two requirements on the schedule**
+
+| Requirement | Guarantees | static + static | static,1 + static,1 |
+|---|---|---|---|
+| Same split in count and scatter | Each thread fills exactly the slots it reserved (no overflow, holes, collisions) | ✓ | ✓ |
+| Contiguous chunks in thread order | Within a bin, thread order = input order → stable | ✓ | ✗ |
+
+- `schedule(static)` = one contiguous block per thread (T0 gets 0..N/4-1); `static, 1` = round-robin (T0 gets 0, 4, 8, ...)
+- Mismatched splits: thread scatters different elements than it counted → writes past reserved slots (out of bounds, races) and leaves holes
+- `static, 1` in both loops: every pass groups by digit correctly, but offsets put all of T0's elements before T1's in each bin while the input interleaves them → order within a bin scrambled → final result wrong (e.g. 13 before 12)
+- OpenMP guarantees two `static` loops with same iteration count and chunk get the same thread mapping. Fragile: explicit blocks `lo = t*N/T, hi = (t+1)*N/T` make it visible in the code
+
+**Results (best of 2)**
+
+| Version | Time | vs qs_serial | vs best quicksort (4 threads) |
+|---|---|---|---|
+| qs_serial (01 Nov) | ~912ms | 1.0x | - |
+| sort_task, best cutoff (01 Nov) | ~360ms | ~2.5x | 1.0x |
+| radix_serial | ~166ms | ~5.5x | ~2.2x |
+| radix_parallel (4 threads) | ~93ms | ~9.8x | ~3.9x |
+
+*Shared 4-vCPU Codespace (AMD EPYC 7763, 2 cores x 2 threads).*
+
+**Coordination bookkeeping (pattern across sessions)**
+
+| Session | Bookkeeping | Kept small by |
+|---|---|---|
+| Histogram | Per-thread private histograms + merge | 256 bins |
+| Mandelbrot | Shared work queue (dynamic) | 125 chunk grabs |
+| Quicksort | Task descriptors in the pool | Cutoff (thousands of tasks, not millions) |
+| Radix | Per-(thread, bin) count and offset tables | 256 × T entries = 16 KB, ~1,000 adds |
+
+- Parallel programming is mostly designing this bookkeeping: just enough shared information for threads to work alone, small enough to be negligible
+
+**Moral of the story**
+- A better algorithm beats better parallelism again: radix serial already beat 4-thread quicksort
+- Prefix sum turns per-thread counts into disjoint, order-preserving write regions: no locks in the hot loop
+- Correctness can depend on the schedule: `static` is required here, not a performance choice
+- Libraries are built for the general case; knowing the data (32-bit int keys) unlocks a specialist algorithm
+
 # 01 Nov 2026 (Quicksort with Tasks)
 
 **Why this exercise**
