@@ -4,5 +4,11 @@
   "command": "/usr/bin/g++   -g -std=c++17 -O3 -march=native -fopenmp -fopenmp -o CMakeFiles/vector_add.dir/src/radix_sort.cpp.o -c /workspaces/OpenMP/src/radix_sort.cpp",
   "file": "/workspaces/OpenMP/src/radix_sort.cpp",
   "output": "CMakeFiles/vector_add.dir/src/radix_sort.cpp.o"
+},
+{
+  "directory": "/workspaces/OpenMP/build",
+  "command": "/usr/bin/g++   -g -std=c++17 -O3 -march=native -fopenmp -fopenmp -o CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.o -c /workspaces/OpenMP/src/gradient_boosting.cpp",
+  "file": "/workspaces/OpenMP/src/gradient_boosting.cpp",
+  "output": "CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.o"
 }
 ]

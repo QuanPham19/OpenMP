@@ -81,12 +81,12 @@ clean: CMakeFiles/vector_add.dir/clean
 CMakeFiles/vector_add.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/workspaces/OpenMP/build/CMakeFiles --progress-num=1,2 "Built target vector_add"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/workspaces/OpenMP/build/CMakeFiles --progress-num=1,2,3 "Built target vector_add"
 .PHONY : CMakeFiles/vector_add.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/vector_add.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/OpenMP/build/CMakeFiles 2
+	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/OpenMP/build/CMakeFiles 3
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/vector_add.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/OpenMP/build/CMakeFiles 0
 .PHONY : CMakeFiles/vector_add.dir/rule

@@ -129,6 +129,30 @@ vector_add/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/build
 .PHONY : vector_add/fast
 
+src/gradient_boosting.o: src/gradient_boosting.cpp.o
+.PHONY : src/gradient_boosting.o
+
+# target to build an object file
+src/gradient_boosting.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.o
+.PHONY : src/gradient_boosting.cpp.o
+
+src/gradient_boosting.i: src/gradient_boosting.cpp.i
+.PHONY : src/gradient_boosting.i
+
+# target to preprocess a source file
+src/gradient_boosting.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.i
+.PHONY : src/gradient_boosting.cpp.i
+
+src/gradient_boosting.s: src/gradient_boosting.cpp.s
+.PHONY : src/gradient_boosting.s
+
+# target to generate assembly for a file
+src/gradient_boosting.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.s
+.PHONY : src/gradient_boosting.cpp.s
+
 src/radix_sort.o: src/radix_sort.cpp.o
 .PHONY : src/radix_sort.o
 
@@ -162,6 +186,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... vector_add"
+	@echo "... src/gradient_boosting.o"
+	@echo "... src/gradient_boosting.i"
+	@echo "... src/gradient_boosting.s"
 	@echo "... src/radix_sort.o"
 	@echo "... src/radix_sort.i"
 	@echo "... src/radix_sort.s"
