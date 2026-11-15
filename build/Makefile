@@ -153,30 +153,6 @@ src/gradient_boosting.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.s
 .PHONY : src/gradient_boosting.cpp.s
 
-src/radix_sort.o: src/radix_sort.cpp.o
-.PHONY : src/radix_sort.o
-
-# target to build an object file
-src/radix_sort.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/radix_sort.cpp.o
-.PHONY : src/radix_sort.cpp.o
-
-src/radix_sort.i: src/radix_sort.cpp.i
-.PHONY : src/radix_sort.i
-
-# target to preprocess a source file
-src/radix_sort.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/radix_sort.cpp.i
-.PHONY : src/radix_sort.cpp.i
-
-src/radix_sort.s: src/radix_sort.cpp.s
-.PHONY : src/radix_sort.s
-
-# target to generate assembly for a file
-src/radix_sort.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/radix_sort.cpp.s
-.PHONY : src/radix_sort.cpp.s
-
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -189,9 +165,6 @@ help:
 	@echo "... src/gradient_boosting.o"
 	@echo "... src/gradient_boosting.i"
 	@echo "... src/gradient_boosting.s"
-	@echo "... src/radix_sort.o"
-	@echo "... src/radix_sort.i"
-	@echo "... src/radix_sort.s"
 .PHONY : help
 
 

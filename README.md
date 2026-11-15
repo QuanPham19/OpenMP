@@ -1,6 +1,102 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 15 Nov 2026 (Capstone: GBDT Histogram Building, 1 Node)
+
+**Why this exercise**
+- The hot loop of GBDT training: building gradient histograms for a tree node
+- Combines the whole series: private copies (histogram), cache-line layout (matmul, false sharing), data types (uint8), parallel design choices
+
+**Problem statement**
+- For every feature f and bin b: sum grad and hess of all rows in the node whose feature f falls in bin b
+- Settings: N = 1e7 rows, F = 50 features, B = 256 bins per feature (same for all), 1 node = all rows (root)
+- K = 1 (scalar grad/hess) for now; vector leaves later
+- Random data: bins uniform in [0, 256), grad ~ Normal(0, 1), hess ~ Uniform(0.01, 0.25) (positive, like logistic p(1-p))
+
+**Layouts**
+```
+Input  bin[n * F + f]  (row-major):      R0-F0 | R0-F1 | R0-F2 | R1-F0 | R1-F1 | ...
+Output hist[f * B + b] (feature-major):  F0-B0 | F0-B1 | ... | F0-B255 | F1-B0 | ...
+Column-major bin_col[f * N + n]:         R0-F0 | R1-F0 | R2-F0 | ... | R0-F1 | R1-F1 | ...
+```
+- Output is feature-major because split finding scans one feature's bins in order: one contiguous 2 KB run
+- `offset[f] = f * B` kept for later per-feature bin counts
+- Histogram size: 12,800 bins × 8 B = 100 KB each for grad and hess (bigger than L1, fits L2)
+- Row-major vs column-major is the same values in a different order: reading one feature from row-major touches every cache line and uses 1 byte in 50; column-major makes each feature a contiguous run
+
+**Correctness check**
+- Every row lands in exactly one bin of each feature → for every f, sum over bins of hist.grad = sum of all grad (same for hess)
+- Compare with tolerance (1e-6 × N), not `==`: floating-point sums in a different order differ slightly
+- Reset with `hist.grad.assign(F * B, 0.0)` before every run (`resize` to the same size does not zero)
+
+**Version 0: hist_serial**
+- For each row, for each feature: `hist[f * B + bin] += grad[n]` (and hess)
+- Speed: ~849ms (5e8 updates, ~1.7 ns ≈ 5 cycles each)
+
+**Version 1: hist_local (parallel over rows, private histograms)**
+- Plain `parallel for` over rows would race: different rows hit the same (feature, bin)
+- Session 2 fix: each thread has private `lg`, `lh` (200 KB per thread), merge under `critical`
+- `double g = grad[n]` loaded once per row, not per feature
+- Speed: ~393ms (~2.2x)
+- Bin skew does NOT cause load imbalance here: every row does exactly F updates, so `static` is fair. Skew causes the session 3 store-dependency stall instead (fix: sub-histograms)
+- uint8 bins: 394 → 381ms, within noise. Reading bins is ~5 GB/s, far below the ceiling: not the bottleneck
+
+**Version 2: hist_gh (interleave grad and hess)**
+```cpp
+struct GH { double g, h; };      // like XGBoost's GradientPair
+GH& slot = lgh[f * B + bin[n * F + f]];
+slot.g += g;
+slot.h += h;                     // same cache line as .g
+```
+- Separate arrays: g and h of one bin are on 2 different cache lines → 2 possible misses per update
+- Interleaved: 1 line holds both → 1 possible miss. Distance is not the cost, the number of lines is
+- Consecutive updates still jump between random bins: interleaving halves misses, does not remove them
+- Speed: ~270ms (~1.45x over local, ~3.1x over serial)
+- Rule: data always used together should be stored together
+
+**Version 3: hist_feat (parallel over features, column-major bins)**
+- Each thread owns whole features: no race, no private copies, no merge
+- One feature's histogram = 256 × 16 B = 4 KB → stays in L1
+- Needs column-major bins (transposed once, outside timing)
+- Cost: every feature re-reads all grad and hess (160 MB × 50 = ~8 GB)
+- Speed: ~241ms (~3.5x over serial)
+
+**Results (best of 2, 4 threads)**
+
+| Version | Best time | vs serial |
+|---|---|---|
+| serial | ~849ms | 1.0x |
+| local (separate arrays) | ~393ms | ~2.2x |
+| gh (interleaved, row-parallel) | ~270ms | ~3.1x |
+| feat (column-major, feature-parallel) | ~241ms | ~3.5x |
+
+*Shared 4-vCPU Codespace (AMD EPYC 7763, 2 cores x 2 threads).*
+
+**Where each design pays**
+
+| | gh (rows) | feat (features) |
+|---|---|---|
+| Histogram updates | 200 KB private per thread, in L2 | 4 KB per feature, in L1 |
+| grad/hess reads | once (160 MB) | 50 times (~8 GB) |
+| Merge | yes (small) | none |
+| Best data layout | row-major | column-major |
+
+- Row-parallel duplicates more local histograms, but visits input data less
+- Feature-parallel visits input data many times, but efficient on single histogram work
+
+**Moral of the story**
+- The series' tools compose: private copies (2.2x) + cache-line layout (1.45x) = 3.1x
+- Layout follows access pattern: row-major for row-parallel, column-major for feature-parallel
+- A design can trade one cost for another (cache misses vs memory traffic) and land at the same time
+- When different designs tie, look for the shared limit (instructions per update), not the differences
+- A rerun disproved an explanation again (bandwidth for hist_feat): test hypotheses by removing the suspected cost
+
+**Next session**
+- Vector leaves (K > 1): gh's per-thread histograms grow K times and leave L2, feat's per-feature histograms can stay in cache. Where the designs should separate
+- Fewer instructions per update: GH input layout + 16-byte paired load/add/store (check `-fopt-info-vec`)
+- Skewed bins + sub-histograms (realistic: many zeros, missing values)
+- Child nodes: `rows[]` index subset, histogram subtraction trick (sibling = parent − child)
+
 # 08 Nov 2026 (Radix Sort: Histogram + Prefix Sum + Scatter)
 
 **Why this exercise**
