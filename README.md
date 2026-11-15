@@ -54,12 +54,15 @@ slot.h += h;                     // same cache line as .g
 - Speed: ~270ms (~1.45x over local, ~3.1x over serial)
 - Rule: data always used together should be stored together
 
+![alt text](image-3.png)
+
 **Version 3: hist_feat (parallel over features, column-major bins)**
 - Each thread owns whole features: no race, no private copies, no merge
 - One feature's histogram = 256 × 16 B = 4 KB → stays in L1
 - Needs column-major bins (transposed once, outside timing)
 - Cost: every feature re-reads all grad and hess (160 MB × 50 = ~8 GB)
 - Speed: ~241ms (~3.5x over serial)
+![alt text](image-2.png)
 
 **Results (best of 2, 4 threads)**
 
