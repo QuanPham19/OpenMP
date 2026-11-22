@@ -240,7 +240,7 @@ int main() {
 
         }
         // Quick check
-        check_hist(grad, hess, hist, N, F, B);\
+        check_hist(grad, hess, hist, N, F, B);
         hist.grad.assign(F * B, 0.0);   // resize + set every element to 0
         hist.hess.assign(F * B, 0.0);
 

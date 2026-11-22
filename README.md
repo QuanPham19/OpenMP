@@ -1,6 +1,110 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 22 Nov 2026 (Capstone: GBDT Histogram Building, Many Nodes)
+
+**Gap from XGBoost-level code (review of last session)**
+- Many nodes per level (rows below the root are subsets)
+- Skewed and sparse bins (zeros, missing values)
+- Row partitioning after each split, histogram subtraction trick (sibling = parent − child)
+- Variable bins per feature (quantile cuts → `offset[f] + b`), compact types (uint8 bins, float gradient pairs, double sums)
+- Row-wise vs column-wise strategy chosen by data shape (LightGBM)
+- Around it: split finding, quantile binning, leaf values (K × K solve for vector leaves), sampling, histogram memory pool
+
+**Problem statement**
+- For every node k, feature f, bin b: sum grad/hess of rows that are in node k AND whose feature f is in bin b
+- Settings: N = 1e7, F = 50, B = 256, K = 64 active nodes (one tree level), uniform random positions
+- Input:
+    - `bin[n * F + f]` row-major (column-major copy `bin_col[f * N + n]` for feature-parallel)
+    - `grad[n]`, `hess[n]` per row
+    - `position[n]`: active node of row n (0 .. K-1), −1 = finished leaf
+- One pass over all rows builds every node's histogram: data read once per level (depth-wise growth)
+
+**Output layout (node-major)**
+```
+index = (k * F + f) * B + b
+n0-f0-b0 … n0-f0-b255 | n0-f1-b0 … | … | n0-f49-b255 | n1-f0-b0 …
+└──────────── node 0: F*B = 12,800 bins ────────────┘ └── node 1 ...
+```
+- Each node's histogram is a contiguous block, same layout as the single-node version
+- Node-major because split finding works per node, subtraction is one block operation, blocks can be pooled
+- Alternative feature-major `(f * K + k) * B + b` suits feature ownership (copy-out = one memcpy) but scatters each node across F regions
+- Size: 64 × 12,800 = 819,200 bins → 6.5 MB each for grad and hess
+
+**Version 0: advanced_hist_serial**
+- Same as single node, index `k * F * B + f * B + b`
+- Speed: ~1,539ms (vs ~849ms for 1 node): one 13 MB histogram, random updates mostly miss L1/L2
+
+**Version 1: advanced_hist_local (row-parallel, private histograms)**
+- Each thread: `lg`, `lh` of K × F × B → 2 × 819,200 × 8 B = 13 MB per thread, 52 MB for 4 threads (> 32 MB L3)
+- Input arrays read sequentially; the random access is on the histogram (index depends on data)
+- Random updates into 52 MB of private histograms → many go to DRAM (~100 ns)
+- Extra: allocating/zeroing 13 MB per thread (page faults), critical merge of 4 × 1.6M adds
+- Speed: ~2,191ms → slower than serial (~0.7x)
+- Replicating the output stops being viable when the output is large
+
+**Version 2: advanced_hist_feat (feature-parallel, partitioned output)**
+```cpp
+#pragma omp parallel for schedule(static)
+for (int f = 0; f < F; f++) {
+    vector<GH> loc(K * B, {0.0, 0.0});        // all nodes, one feature: 256 KB
+    const int* col = &bin_col[size_t(f) * N];
+    for (size_t n = 0; n < N; n++) {
+        int k = position[n];
+        if (k < 0) continue;
+        GH& s = loc[B * k + col[n]];           // local: [k][b]
+        s.g += grad[n];
+        s.h += hess[n];
+    }
+    for (int k = 0; k < K; k++)
+        for (int b = 0; b < B; b++) {          // global: [k][f][b]
+            hist.grad[k * F * B + f * B + b] = loc[B * k + b].g;
+            hist.hess[k * F * B + f * B + b] = loc[B * k + b].h;
+        }
+}
+```
+- Each thread owns features across all nodes: no race, no merge
+- Local buffer = global array with the feature dimension removed: `[k][f][b]` → `[k][b]`, reinsert f on copy-out
+- Copy-out is a nested loop because feature f is spread across K blocks in node-major layout (price of choosing node-major)
+- Speed: ~507ms (~3.0x over serial, ~4.3x over local)
+
+**Results (best of 2, 4 threads, K = 64)**
+
+| Version | Best time | vs serial |
+|---|---|---|
+| serial | ~1,539ms | 1.0x |
+| local (row-parallel, replicated output) | ~2,191ms | ~0.7x |
+| feat (feature-parallel, partitioned output) | ~507ms | ~3.0x |
+
+*Shared 4-vCPU Codespace (AMD EPYC 7763, 2 cores x 2 threads).*
+
+**The trade-off**
+
+| | local (row-parallel) | feat (feature-parallel) |
+|---|---|---|
+| Histogram per thread | F × K × B bins (× T threads total), merge | K × B bins (one feature at a time), no merge |
+| Row data (grad, hess, position) | N rows, once (~2.2 GB) | N rows per feature: N × F (~12 GB, sequential) |
+| Bin entries | N × F, once | N × F, once (each feature its own column) |
+| Where updates land | L3 / DRAM (52 MB > 32 MB L3) | mostly L2 (256 KB per thread; 2 hyperthreads fill the 512 KB L2) |
+
+- 1 node: the two designs tied. 64 nodes: output size decided it
+- local's cost grows with thread count (full copy per thread): worse on bigger machines
+- Rule: compare where each cost lands, not just sizes. Sequential re-reads are cheap, random misses beyond L3 are expensive
+- feat is ~2x slower than its 1-node version (241ms): histogram moved from L1 (4 KB) to L2 (256 KB), and position re-read adds 2 GB
+
+**Moral of the story**
+- Whichever dimension you split, the other gets replicated: replicate the small one
+- When the output grows (more nodes, vector leaves, more threads), partition it instead of replicating it
+- Coordinating two index layouts (local vs global) is the hard part of partitioned outputs: define each mapping once
+
+**Next session: row partition (XGBoost style)**
+- Keep a permutation `rows[]` where each node's rows are a contiguous segment `[begin[k], end[k])`
+- Partition step after each split: like quicksort's partition or a 2-bin radix scatter (per-thread counts + offsets), O(N) per level
+- Node-parallel histogram: thread owns whole nodes (F × B = 200 KB each), reads each row once, no merge
+- Costs: gather reads (`grad[rows[i]]`), uneven node sizes (dynamic or split big nodes into row blocks)
+- Natural fit for the subtraction trick: build the smaller child, sibling = parent − child
+- Also: row blocking for feat, uint8 bins and positions (K ≤ 256)
+
 # 15 Nov 2026 (Capstone: GBDT Histogram Building, 1 Node)
 
 **Why this exercise**

@@ -129,29 +129,29 @@ vector_add/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/build
 .PHONY : vector_add/fast
 
-src/gradient_boosting.o: src/gradient_boosting.cpp.o
-.PHONY : src/gradient_boosting.o
+src/boosting_advanced.o: src/boosting_advanced.cpp.o
+.PHONY : src/boosting_advanced.o
 
 # target to build an object file
-src/gradient_boosting.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.o
-.PHONY : src/gradient_boosting.cpp.o
+src/boosting_advanced.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/boosting_advanced.cpp.o
+.PHONY : src/boosting_advanced.cpp.o
 
-src/gradient_boosting.i: src/gradient_boosting.cpp.i
-.PHONY : src/gradient_boosting.i
+src/boosting_advanced.i: src/boosting_advanced.cpp.i
+.PHONY : src/boosting_advanced.i
 
 # target to preprocess a source file
-src/gradient_boosting.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.i
-.PHONY : src/gradient_boosting.cpp.i
+src/boosting_advanced.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/boosting_advanced.cpp.i
+.PHONY : src/boosting_advanced.cpp.i
 
-src/gradient_boosting.s: src/gradient_boosting.cpp.s
-.PHONY : src/gradient_boosting.s
+src/boosting_advanced.s: src/boosting_advanced.cpp.s
+.PHONY : src/boosting_advanced.s
 
 # target to generate assembly for a file
-src/gradient_boosting.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.s
-.PHONY : src/gradient_boosting.cpp.s
+src/boosting_advanced.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/vector_add.dir/build.make CMakeFiles/vector_add.dir/src/boosting_advanced.cpp.s
+.PHONY : src/boosting_advanced.cpp.s
 
 # Help Target
 help:
@@ -162,9 +162,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... vector_add"
-	@echo "... src/gradient_boosting.o"
-	@echo "... src/gradient_boosting.i"
-	@echo "... src/gradient_boosting.s"
+	@echo "... src/boosting_advanced.o"
+	@echo "... src/boosting_advanced.i"
+	@echo "... src/boosting_advanced.s"
 .PHONY : help
 
 

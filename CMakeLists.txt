@@ -25,6 +25,7 @@ add_executable(vector_add
   # src/load_imbalance.cpp
   # src/irregular_task.cpp
   # src/radix_sort.cpp
-  src/gradient_boosting.cpp)
+  # src/gradient_boosting.cpp
+  src/boosting_advanced.cpp)
 target_link_libraries(vector_add PRIVATE OpenMP::OpenMP_CXX)
 target_compile_options(vector_add PRIVATE -O3 -march=native -fopenmp)

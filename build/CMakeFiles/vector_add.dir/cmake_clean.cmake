@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.o"
-  "CMakeFiles/vector_add.dir/src/gradient_boosting.cpp.o.d"
+  "CMakeFiles/vector_add.dir/src/boosting_advanced.cpp.o"
+  "CMakeFiles/vector_add.dir/src/boosting_advanced.cpp.o.d"
   "vector_add"
   "vector_add.pdb"
 )
