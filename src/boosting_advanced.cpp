@@ -73,6 +73,7 @@ void advanced_hist_serial(vector<int>& bin, vector<double>& grad, vector<double>
         for (int f=0; f<F; f++) {
             // Access node information
             int k = position[n];
+            if (k < 0) continue;          // inactive row: skip
 
             // Access bin information
             int b = bin[F * n + f];
@@ -87,7 +88,7 @@ void advanced_hist_serial(vector<int>& bin, vector<double>& grad, vector<double>
     }
 }
 
-// VERSION 0: PARALLEL OVER ROWS (LOCAL HIST)
+// VERSION 1: PARALLEL OVER ROWS (LOCAL HIST)
 // Motivation: 
 // - If using parallel over rows, multiple rows can hit the same (feature, bin) race conditions
 // - Idea from histogram session: building by local histogram, then reduce
@@ -105,6 +106,7 @@ void advanced_hist_local(vector<int>& bin, vector<double>& grad, vector<double>&
             for (int f=0; f<F; f++) {
                 // Access node information
                 int k = position[n];
+                if (k < 0) continue;          // inactive row: skip
 
                 // Access bin information
                 int b = bin[F * n + f];
@@ -127,7 +129,7 @@ void advanced_hist_local(vector<int>& bin, vector<double>& grad, vector<double>&
     }    
 }
 
-// VERSION 3: PARALLEL OVER FEATURES INSTEAD OF ROWS
+// VERSION 2: PARALLEL OVER FEATURES INSTEAD OF ROWS
 struct GH { double g, h; };
 void advanced_hist_feat(const vector<int>& bin_col, const vector<double>& grad,
                       const vector<double>& hess, const vector<int>& position, Hist& hist, int N, int F, int K, int B) {
@@ -163,6 +165,7 @@ void advanced_hist_feat(const vector<int>& bin_col, const vector<double>& grad,
             int b = col[n];
             // get node information
             int k = position[n];
+            if (k < 0) continue;          // inactive row: skip
 
             // write to local flat index: (node k, bin b) -> (B*K + b)
             GH& s = loc[B * k + b];
@@ -190,6 +193,134 @@ void advanced_hist_feat(const vector<int>& bin_col, const vector<double>& grad,
     }
 }
 
+// VERSION 3: PARTITION BY ROWS
+// position:  [3, 0, 2, 0, 3, 1, ...]          ← label per row, nodes interleaved
+
+// rows:      [ 1, 3, ... | 5, ... | 2, ... | 0, 4, ... ]
+//              └ node 0 ┘ └node 1┘ └node 2┘ └ node 3 ┘
+// segment k = rows[begin[k] .. end[k])
+
+void advanced_hist_partition_serial(vector<int>& bin, vector<double>& grad, vector<double>& hess,
+    vector<int>& position, Hist& hist, int N, int F, int K, int B) {
+    
+    // Stage 1: partition rows according to node info
+    // Initialize counter for K nodes
+    vector<int> row_count(K, 0);
+    for (int n=0; n<N; n++) {
+        int k = position[n];
+        if (k < 0) continue;
+        row_count[k] += 1;
+    }
+    // Build start position for each node
+    vector<int> start(K+1, 0);                // to be modified
+    int sum = 0;
+    for (int k=0; k<K; k++) {
+        start[k] = sum;
+        sum += row_count[k];
+    }
+    start[K] = sum;                           // ending offset at N
+    // Check if sum = row count
+    // cout << "SUM: " << sum << ", " << "ROW COUNT: " << N << endl;
+
+    vector<int> begin = start;   // before the scatter loop
+
+    // One more pass to scatter (write) row-id in node order
+    vector<int> rows(N, 0);
+    for (int n=0; n<N; n++) {
+        // Get start index
+        int k = position[n];
+        if (k < 0) continue;
+        int& offset = start[k];
+        rows[offset] = n;
+
+        // Increase start index of that node by 1
+        offset++;
+    }
+
+    // Stage 2: build histogram serial
+    for (int k = 0; k < K; k++) {
+        for (int i = begin[k]; i < begin[k + 1]; i++) {
+            int n = rows[i];
+            // Loop over feature
+            for (int f=0; f<F; f++) {
+                // Access bin information
+                int b = bin[F * n + f];
+
+                // Evaluate output flat index of histogram
+                int out = k * F * B + f * B + b;
+
+                // Append grad/hess to correct position
+                hist.grad[out] += grad[n];
+                hist.hess[out] += hess[n];
+            }
+        }
+    }
+}
+
+void advanced_hist_partition_parallel(vector<int>& bin, vector<double>& grad, vector<double>& hess,
+    vector<int>& position, Hist& hist, int N, int F, int K, int B) {
+    
+    // Stage 1: partition rows according to node info
+    // Initialize counter for K nodes
+
+    vector<int> row_count(K, 0);
+    for (int n=0; n<N; n++) {
+        int k = position[n];
+        if (k < 0) continue;
+        row_count[k] += 1;
+    }
+    // Build start position for each node
+    vector<int> start(K+1, 0);                // to be modified
+    int sum = 0;
+    for (int k=0; k<K; k++) {
+        start[k] = sum;
+        sum += row_count[k];
+    }
+    start[K] = sum;                           // ending offset at N
+    // Check if sum = row count
+    // cout << "SUM: " << sum << ", " << "ROW COUNT: " << N << endl;
+
+    vector<int> begin = start;   // before the scatter loop
+
+    // One more pass to scatter (write) row-id in node order
+    vector<GH> ordered(N);
+    vector<int> rows(N, 0);
+    for (int n=0; n<N; n++) {
+        // Get start index
+        int k = position[n];
+        if (k < 0) continue;
+        int& offset = start[k];
+        rows[offset] = n;
+
+        ordered[offset] = {grad[n], hess[n]};   // grad/hess read sequentially, written in node order
+
+        // Increase start index of that node by 1
+        offset++;
+    }
+
+    // Stage 2: build histogram serial
+    #pragma omp parallel for schedule(dynamic, 1)
+    for (int k = 0; k < K; k++) {
+        for (int i = begin[k]; i < begin[k + 1]; i++) {
+            int n = rows[i];
+            double g = ordered[i].g;
+            double h = ordered[i].h;   // sequential read, no gather
+
+            // Loop over feature
+            for (int f=0; f<F; f++) {
+                // Access bin information
+                int b = bin[F * n + f];
+
+                // Evaluate output flat index of histogram
+                int out = k * F * B + f * B + b;
+
+                // Append grad/hess to correct position
+                hist.grad[out] += g;
+                hist.hess[out] += h;
+            }
+        }
+    }
+}
 
 void check_hist(const vector<double>& grad, const vector<double>& hess,
                 const vector<int>& position, const Hist& hist,
@@ -232,9 +363,38 @@ int main() {
 
     // Initialize position information
     int K = 64;                                     // active nodes (depth 5)
+
+    // uniform_int_distribution<int> pdist(0, K - 1);
+    // for (int r = 0; r < N; r++) position[r] = pdist(rng);
+
+    // Pick one scenario
+    int mode = 3;   // 0 = uniform random (current), 1 = clustered, 2 = skewed node sizes, 3 = mostly inactive rows
+
     vector<int> position(N);
-    uniform_int_distribution<int> pdist(0, K - 1);
-    for (int r = 0; r < N; r++) position[r] = pdist(rng);
+    if (mode == 0) {
+        // Uniform: every node spread across the whole dataset (worst case for gathers)
+        uniform_int_distribution<int> pdist(0, K - 1);
+        for (int r = 0; r < N; r++) position[r] = pdist(rng);
+    }
+    else if (mode == 1) {
+        // Clustered: each node's rows are one contiguous range of row ids
+        // (e.g. data ordered by time, with the tree splitting on a time-like feature)
+        for (int r = 0; r < N; r++) position[r] = int((long long)r * K / N);
+    }
+    else if (mode == 2) {
+        // Skewed node sizes: node k gets weight ~ 1 / (k + 1), so a few big nodes and many small
+        vector<double> w(K);
+        for (int k = 0; k < K; k++) w[k] = 1.0 / (k + 1);
+        discrete_distribution<int> pdist(w.begin(), w.end());
+        for (int r = 0; r < N; r++) position[r] = pdist(rng);
+    }
+    else if (mode == 3) {
+        // Mostly inactive: deep in a tree, most rows sit in finished leaves (position -1)
+        double active_frac = 0.2;                     // only 20% of rows still being split
+        bernoulli_distribution active(active_frac);
+        uniform_int_distribution<int> pdist(0, K - 1);
+        for (int r = 0; r < N; r++) position[r] = active(rng) ? pdist(rng) : -1;
+    }
 
     // Initialize histogram
     Hist hist;
@@ -269,6 +429,7 @@ int main() {
 
     // VERSION 0: serial
     for (int i=0; i<2; i++) {
+        cout << "Mode: " << mode << endl;
         cout << "Round: " << i << endl;
         // VERSION 0
         {
@@ -295,7 +456,29 @@ int main() {
         // VERSION 2
         {
             ScopedTimer t{"hist_feat"};
-            advanced_hist_feat(bin, grad, hess, position, hist, N, F, K, B);
+            advanced_hist_feat(bin_col, grad, hess, position, hist, N, F, K, B);
+
+        }
+        // Quick check
+        check_hist(grad, hess, position, hist, N, F, K, B);
+        hist.grad.assign(K * F * B, 0.0);   // resize + set every element to 0
+        hist.hess.assign(K * F * B, 0.0);
+
+        // VERSION 3
+        {
+            ScopedTimer t{"hist_partition_serial"};
+            advanced_hist_partition_serial(bin, grad, hess, position, hist, N, F, K, B);
+
+        }
+        // Quick check
+        check_hist(grad, hess, position, hist, N, F, K, B);
+        hist.grad.assign(K * F * B, 0.0);   // resize + set every element to 0
+        hist.hess.assign(K * F * B, 0.0);
+
+        // VERSION 3
+        {
+            ScopedTimer t{"hist_partition_parallel"};
+            advanced_hist_partition_parallel(bin, grad, hess, position, hist, N, F, K, B);
 
         }
         // Quick check

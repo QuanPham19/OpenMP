@@ -1,6 +1,58 @@
 # OpenMP
 Practice and benchmark OpenMP in C++
 
+# 23 Nov 2026 (Capstone: Row Partition, XGBoost Style)
+
+**Goal**
+- Group rows by node so each node's rows form one contiguous segment, then build histograms node by node
+```
+position:  [3, 0, 2, 0, 3, 1, ...]            ← label per row, nodes interleaved
+rows:      [ 1, 3, ... | 5, ... | 2, ... | 0, 4, ... ]
+             └ node 0 ┘ └node 1┘ └node 2┘ └ node 3 ┘
+segment k = rows[begin[k] .. begin[k+1])
+```
+
+**Stage 1: partition = one radix pass**
+- Digit = `position[n]`, K bins (nodes), element written = the row index `n`
+- Count → exclusive prefix sum → stable scatter (`rows[start[k]++] = n`)
+- `begin` needs K + 1 entries: `begin[K]` = number of active rows (sentinel), so end of node k is always `begin[k+1]`
+- Keep a copy of `begin` before scattering (the scatter advances `start` to the segment ends)
+- Stable scatter → row ids increasing inside each segment → gathers move forward through memory
+- Example: position [3,0,2,0,3,1,2,0] → rows [1,3,7 | 5 | 2,6 | 0,4]
+
+**Stage 2: histogram per node**
+- Serial over nodes, then `#pragma omp parallel for schedule(dynamic, 1)` over nodes
+- Each thread owns whole nodes: no race, no private copies, no merge, reads each row once
+- Nested loop (k outer, segment inner) instead of tracking k with a counter
+
+**Results (best of 2, ms, 4 threads, N = 1e7, F = 50, K = 64)**
+
+| Mode | serial | local | feat | part_serial | part_parallel | Winner |
+|---|---|---|---|---|---|---|
+| 0 Uniform random nodes | 1,587 | 2,578 | 598 | 2,751 | 1,061 | feat |
+| 1 Clustered (contiguous nodes) | 939 | 483 | 391 | 1,003 | 601 | feat |
+| 2 Skewed node sizes (~1/(k+1)) | 1,460 | 1,292 | 573 | 2,386 | 975 | feat |
+| 3 80% rows inactive | 560 | 586 | 414 | 659 | 358 | partition |
+
+**Notes**
+- feat is robust: fastest or close in every mode (and already uses the GH layout)
+- Mode 1: predicted partition would win, it didn't. local improved a lot: each thread's chunk covers only ~16 nodes
+- Mode 2: biggest node ≈ 21% of rows, processed by one thread → node-parallel capped (~4-5x). Needs node × row-block work items
+- Mode 3: partition wins by ~16%: skipping inactive rows is its real advantage, but feat skips cheaply on sequential reads
+
+**What XGBoost does (src/common/hist_util.cc, src/tree/hist/histogram.h)**
+- Row-wise kernel with software prefetch of row i + 10 (gradient pair + bin row) when rows are not contiguous
+- 2D work space: (node, row block), block size from ~80% of L1; per-thread buffers, parallel reduction over (node, 1024-bin range)
+- Switches to a column-wise kernel (32 features per block) when one node's histogram does not fit ~80% of (L2 + L3/threads) and data is dense
+- float gradient pairs, double histograms; bins stored as uint8/16/32 per feature + offsets
+- nodes_to_build vs nodes_to_sub: subtraction trick (sibling = parent − child)
+- Partitions incrementally (splits existing segments), never regroups all rows from scratch
+
+**Moral of the story**
+- Row partitioning trades scattered histogram writes for gathered input reads; it only pays when it lets you skip work
+- A fair comparison needs the same micro-optimizations on both sides (GH layout, compact types)
+- Predictions failed again (ordered gradients, mode 1): measure stages before optimizing
+
 # 22 Nov 2026 (Capstone: GBDT Histogram Building, Many Nodes)
 
 **Gap from XGBoost-level code (review of last session)**
